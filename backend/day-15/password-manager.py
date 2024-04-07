@@ -140,6 +140,3 @@ while running:
     print_menu()
     user_input = input("Enter a number: ")
     check_input(user_input)
-
-
-    

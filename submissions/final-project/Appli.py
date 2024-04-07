@@ -1,56 +1,102 @@
+import json
+import sqlite3
 from flask import Flask, render_template, request, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash
-import string
-import secrets
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/test.db'
-db = SQLAlchemy(app)
+app.config['DATABASE'] = 'password_manager.db'
 
-class Password(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    website = db.Column(db.String(80), nullable=False)
-    email = db.Column(db.String(120), nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
+def get_db():
+    db = sqlite3.connect(app.config["DATABASE"])
+    return db
+
+conn = get_db()
+cursor = conn.cursor()
+cursor.execute('''
+                CREATE TABLE IF NOT EXISTS passwords (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    website TEXT,
+                    email TEXT,
+                    password TEXT
+                    )
+                ''')
+conn.commit()
+conn.close()
+
+def add(website, email, password):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+                        INSERT INTO passwords (website, email, password)
+                        VALUES (?, ?, ?)
+                        ''', (website, email, password))
+        conn.commit()
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+
+    finally:
+        conn.close()
+
+def view():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+                    SELECT * FROM passwords
+                    ''')
+    entries = cursor.fetchall()
+    conn.close()
+    return entries
+
+def delete(entry_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+                    DELETE FROM passwords WHERE id = ?
+                    ''', (entry_id,))
+    conn.commit()
+    conn.close()
+
+def update(entry_id, email, password):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+                        UPDATE passwords SET email = ?, password = ? WHERE id = ?
+                        ''', (email, password, entry_id))
+        conn.commit()
+
+    except sqlite3.Error as e:
+        print("SQLite error:", e)
+
+    finally:
+        conn.close()
 
 @app.route('/')
 def index():
-    passwords = Password.query.all()
-    return render_template('index.html', passwords=passwords)
+    entries = view()
+    return render_template('index.html', entries=entries)
 
-@app.route('/add_password', methods=['POST'])
-def add_password():
+@app.route('/add', methods=['POST'])
+def add_entry():
     website = request.form['website']
     email = request.form['email']
-    password = generate_password()
-    password_hash = generate_password_hash(password)
-    new_password = Password(website=website, email=email, password_hash=password_hash)
-    db.session.add(new_password)
-    db.session.commit()
+    password = request.form['password']
+    
+    add(website, email, password)
     return redirect(url_for('index'))
 
-@app.route('/update_password/<int:id>', methods=['POST'])
-def update_password(id):
-    password = Password.query.get(id)
-    password.website = request.form['website']
-    password.email = request.form['email']
-    password.password_hash = generate_password_hash(request.form['password'])
-    db.session.commit()
+@app.route('/delete/<int:entry_id>')
+def delete_entry(entry_id):
+    delete(entry_id)
     return redirect(url_for('index'))
 
-@app.route('/delete_password/<int:id>')
-def delete_password(id):
-    password = Password.query.get(id)
-    db.session.delete(password)
-    db.session.commit()
+@app.route('/update/<int:entry_id>', methods=['POST'])
+def update_entry(entry_id):
+    email = request.form.get('email')
+    password = request.form.get('password')
+    update(entry_id, email, password)
     return redirect(url_for('index'))
-
-def generate_password(length=12):
-    characters = string.ascii_letters + string.digits + string.punctuation
-    password = ''.join(secrets.choice(characters) for _ in range(length))
-    return password
 
 if __name__ == '__main__':
-    db.create_all()
-    app.run(debug=True)
+    app.run()
